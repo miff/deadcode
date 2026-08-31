@@ -1,3 +1,5 @@
+mod html;
+
 use deadcode_core::{scan, Bucket, ScanOptions, ScanReport};
 use std::fs;
 use std::io::{self, Write};
@@ -15,6 +17,8 @@ OPTIONS:
     --save                  Also write ./deadcode-report.json
     --out <PATH>            Also write JSON to PATH (a directory gets
                             deadcode-report.json inside it)
+    --html                  Also write an HTML report beside the JSON
+                            (same path with a .html extension)
     --bucket <B>            Only report one bucket: dead | test-only | dynamic
     --include-overrides     Also flag `override func` / `override fun`
     --include-tests         Also flag declarations inside test targets
@@ -30,6 +34,9 @@ EXIT CODES:
 --save and --out are independent of --json: without --json you still get the
 human-readable report on stdout and the JSON on disk.
 
+--html implies saving. On its own it writes ./deadcode-report.html only; add
+--save or --out to get the .json alongside it.
+
 Findings are candidates to inspect, not verdicts. See README.md for limits.";
 
 const DEFAULT_REPORT_NAME: &str = "deadcode-report.json";
@@ -39,6 +46,8 @@ struct Cli {
     opts: ScanOptions,
     json: bool,
     out: Option<PathBuf>,
+    html: bool,
+    write_json_file: bool,
     only: Option<Bucket>,
     fail_on_dead: bool,
 }
@@ -67,8 +76,12 @@ fn main() -> ExitCode {
     };
 
     if let Some(dest) = &cli.out {
-        match write_report(&report, dest) {
-            Ok(path) => eprintln!("wrote {}", path.display()),
+        match write_outputs(&report, dest, cli.write_json_file, cli.html) {
+            Ok(paths) => {
+                for p in paths {
+                    eprintln!("wrote {}", p.display());
+                }
+            }
             Err(e) => {
                 eprintln!("error: could not write report: {e}");
                 return ExitCode::from(1);
@@ -109,6 +122,8 @@ fn parse_args() -> Result<Option<Cli>, String> {
     let mut opts = ScanOptions::default();
     let mut json = false;
     let mut out: Option<PathBuf> = None;
+    let mut html = false;
+    let mut wants_json_file = false;
     let mut only = None;
     let mut fail_on_dead = false;
 
@@ -122,12 +137,17 @@ fn parse_args() -> Result<Option<Cli>, String> {
                 return Ok(None);
             }
             "--json" => json = true,
-            "--save" => out = Some(PathBuf::from(DEFAULT_REPORT_NAME)),
+            "--save" => {
+                out = Some(PathBuf::from(DEFAULT_REPORT_NAME));
+                wants_json_file = true;
+            }
             "--out" => {
                 i += 1;
                 let v = args.get(i).ok_or("--out needs a path")?;
                 out = Some(PathBuf::from(v));
+                wants_json_file = true;
             }
+            "--html" => html = true,
             "--include-overrides" => opts.include_overrides = true,
             "--include-tests" => opts.include_tests = true,
             "--fail-on-dead" => fail_on_dead = true,
@@ -158,35 +178,65 @@ fn parse_args() -> Result<Option<Cli>, String> {
     }
 
     let root = root.ok_or("missing <path>")?;
+
+    // --html on its own still needs a destination to derive the .html name
+    // from, but must not silently produce a .json the user did not ask for.
+    if html && out.is_none() {
+        out = Some(PathBuf::from(DEFAULT_REPORT_NAME));
+    }
+
     Ok(Some(Cli {
         root,
         opts,
         json,
         out,
+        html,
+        write_json_file: wants_json_file,
         only,
         fail_on_dead,
     }))
 }
 
-/// Serialize the report to `dest`. A directory destination gets the default
-/// filename inside it. Returns the path actually written.
-fn write_report(report: &ScanReport, dest: &Path) -> io::Result<PathBuf> {
-    let path = if dest.is_dir() {
+/// Write the JSON and/or HTML artifacts derived from `dest`.
+///
+/// A directory destination gets the default filename inside it. The HTML file
+/// is the same path with its extension replaced by `.html`, so
+/// `--out reports/scan.json --html` yields `reports/scan.json` and
+/// `reports/scan.html`. Returns the paths actually written.
+fn write_outputs(
+    report: &ScanReport,
+    dest: &Path,
+    write_json: bool,
+    write_html: bool,
+) -> io::Result<Vec<PathBuf>> {
+    let base = if dest.is_dir() {
         dest.join(DEFAULT_REPORT_NAME)
     } else {
         dest.to_path_buf()
     };
 
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = base.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
             fs::create_dir_all(parent)?;
         }
     }
 
-    let json = serde_json::to_string_pretty(report)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    fs::write(&path, json)?;
-    Ok(path)
+    let mut written = Vec::new();
+
+    if write_json {
+        let json = serde_json::to_string_pretty(report)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        fs::write(&base, json)?;
+        written.push(base.clone());
+    }
+
+    if write_html {
+        let path = base.with_extension("html");
+        fs::write(&path, html::render(report)?)?;
+        written.push(path);
+    }
+
+    Ok(written)
 }
 
 fn filter_bucket(mut report: ScanReport, bucket: Bucket) -> ScanReport {

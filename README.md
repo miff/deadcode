@@ -19,7 +19,8 @@ deadcode/
     │       ├── lang.rs     # per-language patterns, suppression lists
     │       └── lexer.rs    # comment/string stripping, identifier tallying
     └── cli/                # deadcode-cli — arg parsing and output only
-        └── src/main.rs
+        ├── src/main.rs
+        └── html.rs
 ```
 
 The split exists so the scanner is callable as a library. `scan()` returns a
@@ -47,6 +48,7 @@ core, `serde_json` in the CLI.
 | `--json` | off | Emit the full `ScanReport` as JSON to stdout instead of text |
 | `--save` | off | Also write `./deadcode-report.json` in the current directory |
 | `--out <PATH>` | — | Also write JSON to `PATH`. A directory gets `deadcode-report.json` inside it; missing parent directories are created. |
+| `--html` | off | Also write an HTML report at the same path with a `.html` extension |
 | `--bucket <B>` | all | Report only one bucket: `dead`, `test-only`, `dynamic` |
 | `--include-overrides` | off | Also flag `override func` / `override fun`. Off because these satisfy superclass/framework contracts. |
 | `--include-tests` | off | Also flag declarations *inside* test targets. Off because XCTest/JUnit methods are runtime-discovered. |
@@ -58,10 +60,15 @@ human-readable report on stdout *and* the JSON on disk:
 
 ```sh
 cd ~/Projects/MyApp
-deadcode . --save                    # reads the report, keeps ./deadcode-report.json
-deadcode . --out reports/scan.json   # creates reports/ if needed
-deadcode . --out reports/            # writes reports/deadcode-report.json
+deadcode . --save                          # reads the report, keeps ./deadcode-report.json
+deadcode . --out reports/scan.json         # creates reports/ if needed
+deadcode . --out reports/                  # writes reports/deadcode-report.json
+deadcode . --html                          # ./deadcode-report.html only
+deadcode . --out reports/scan.json --html  # reports/scan.json + reports/scan.html
 ```
+
+`--html` on its own writes only the `.html`. It does not produce a `.json` you
+did not ask for — add `--save` or `--out` for both.
 
 The confirmation line (`wrote deadcode-report.json`) goes to **stderr**, so
 `--json --save | jq` still works — stdout stays pure JSON.
@@ -146,11 +153,37 @@ deadcode . --fail-on-dead --bucket dead
 starts at zero. Commit a baseline and fail only on regressions:
 
 ```sh
-deadcode . --out ci/current.json --bucket dead
+deadcode . --out ci/current.json --html --bucket dead   # .html is a CI artifact
 jq -r '.findings[] | "\(.file):\(.name)"' ci/current.json | sort > current.txt
 comm -13 baseline.txt current.txt | tee new.txt
 [ -s new.txt ] && echo "new dead code introduced" && exit 1
 ```
+
+## HTML report
+
+`--html` writes a self-contained page: the scan data is embedded as JSON and
+rendered client-side, so it opens straight from `file://` with no server.
+
+- Dark theme, Tailwind v4 from `cdn.jsdelivr.net`. If the CDN is unreachable
+  (offline, locked-down CI), an inline fallback stylesheet keeps the page dark
+  and readable instead of unstyled white.
+- Three summary cards that double as bucket filters — click to narrow, click
+  again to clear.
+- Live text filter across name, file, and kind; a language filter; and a
+  group-by-file toggle that collapses into per-file sections.
+- Each row shows the reference counts on hover and copies `file:line` to the
+  clipboard on click, so it pastes straight into your editor's jump-to-file.
+
+The JSON payload has `</` escaped before embedding, so a `</script>` sitting
+inside one of your string literals cannot break out of the tag. Everything
+rendered into the DOM is HTML-escaped.
+
+Two caveats worth knowing. The clipboard call needs a secure context — it works
+from `file://` in Chrome and Safari but may be blocked in some browsers, and the
+row is still readable if it fails. And the Tailwind browser build compiles
+classes at runtime; that is fine for a local report but it is not the
+production-recommended way to ship Tailwind, so do not copy this pattern into an
+app.
 
 ## How it works
 
