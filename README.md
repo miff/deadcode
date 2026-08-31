@@ -44,12 +44,29 @@ core, `serde_json` in the CLI.
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--json` | off | Emit the full `ScanReport` as JSON instead of text |
+| `--json` | off | Emit the full `ScanReport` as JSON to stdout instead of text |
+| `--save` | off | Also write `./deadcode-report.json` in the current directory |
+| `--out <PATH>` | — | Also write JSON to `PATH`. A directory gets `deadcode-report.json` inside it; missing parent directories are created. |
 | `--bucket <B>` | all | Report only one bucket: `dead`, `test-only`, `dynamic` |
 | `--include-overrides` | off | Also flag `override func` / `override fun`. Off because these satisfy superclass/framework contracts. |
 | `--include-tests` | off | Also flag declarations *inside* test targets. Off because XCTest/JUnit methods are runtime-discovered. |
 | `--min-len N` | `3` | Ignore identifiers shorter than N characters |
 | `--fail-on-dead` | off | Exit `2` if any DEAD finding exists |
+
+`--save` and `--out` are independent of `--json`. Without `--json` you get the
+human-readable report on stdout *and* the JSON on disk:
+
+```sh
+cd ~/Projects/MyApp
+deadcode . --save                    # reads the report, keeps ./deadcode-report.json
+deadcode . --out reports/scan.json   # creates reports/ if needed
+deadcode . --out reports/            # writes reports/deadcode-report.json
+```
+
+The confirmation line (`wrote deadcode-report.json`) goes to **stderr**, so
+`--json --save | jq` still works — stdout stays pure JSON.
+
+`--bucket` filters what gets written to the file too, not just what's printed.
 
 Exit codes: `0` completed, `1` usage or I/O error, `2` DEAD findings with
 `--fail-on-dead`.
@@ -129,7 +146,8 @@ deadcode . --fail-on-dead --bucket dead
 starts at zero. Commit a baseline and fail only on regressions:
 
 ```sh
-deadcode . --json --bucket dead | jq -r '.findings[] | "\(.file):\(.name)"' | sort > current.txt
+deadcode . --out ci/current.json --bucket dead
+jq -r '.findings[] | "\(.file):\(.name)"' ci/current.json | sort > current.txt
 comm -13 baseline.txt current.txt | tee new.txt
 [ -s new.txt ] && echo "new dead code introduced" && exit 1
 ```
