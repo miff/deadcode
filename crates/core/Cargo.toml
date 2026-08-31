@@ -1,0 +1,9 @@
+[package]
+name = "deadcode-core"
+version.workspace = true
+edition.workspace = true
+description = "Heuristic dead-code detection for Swift and Kotlin codebases"
+
+[dependencies]
+regex = { workspace = true }
+serde = { workspace = true }

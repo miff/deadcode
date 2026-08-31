@@ -1,0 +1,12 @@
+[package]
+name = "deadcode-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "deadcode"
+path = "src/main.rs"
+
+[dependencies]
+deadcode-core = { path = "../core" }
+serde_json = { workspace = true }
