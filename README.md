@@ -27,6 +27,21 @@ The split exists so the scanner is callable as a library. `scan()` returns a
 `ScanReport`; nothing in `core` prints or exits. Any other frontend — a GUI,
 an LSP server, a CI plugin — depends on `deadcode-core` and never touches the CLI.
 
+## Install
+
+If Rust not installed (MacOS/Linux or any Unix-like OS)
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+on Windows take a look here [Install Rust](https://rust-lang.org/tools/install/)
+
+next, clone the project
+
+```sh
+git clone https://github.com/miff/deadcode.git
+cd deadcode
+```
+
 ## Build
 
 ```sh
